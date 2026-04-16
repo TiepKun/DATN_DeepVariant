@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "deepvariant-image-classifier"
+version = "0.1.0"
+description = "Train InceptionV3, ConvNeXtV2-Tiny, EfficientNetV2-S, and ViT-Tiny on DeepVariant TFRecords."
+requires-python = ">=3.10,<3.13"
+dependencies = [
+  "tensorflow>=2.16,<2.19",
+  "numpy>=1.26",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["deepvariant_train*"]
+
