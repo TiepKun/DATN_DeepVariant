@@ -135,6 +135,27 @@ Dung run nen:
 wsl bash -lc "cd /mnt/d/DATN_DeepVariant && kill $(cat runs/<run-name>/pid.txt)"
 ```
 
+## Ve bieu do danh gia SNP/INDEL
+
+Tao dashboard tu 4 model da train, dung checkpoint `best.keras` va validation set:
+
+```powershell
+wsl bash -lc "cd /mnt/d/DATN_DeepVariant && . .venv-wsl/bin/activate && TF_CPP_MIN_LOG_LEVEL=1 CUDA_VISIBLE_DEVICES=0 python -m deepvariant_train.evaluate_and_plot --run-dir runs/gpu-terminal-progress --data-dir tfrecords --split val --checkpoint best --batch-size 32"
+```
+
+Output:
+
+```text
+runs/gpu-terminal-progress/evaluation/val/dashboard.html
+runs/gpu-terminal-progress/evaluation/val/history_summary.csv
+runs/gpu-terminal-progress/evaluation/val/split_metrics.csv
+runs/gpu-terminal-progress/evaluation/val/speed_metrics.csv
+runs/gpu-terminal-progress/evaluation/val/class_metrics.csv
+runs/gpu-terminal-progress/evaluation/val/confusion_matrices.csv
+```
+
+Chay tren test set thi doi `--split val` thanh `--split test`.
+
 Tat shuffle train chi khi can debug:
 
 ```powershell
