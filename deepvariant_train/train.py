@@ -18,6 +18,24 @@ from deepvariant_train.data import (
 from deepvariant_train.models import MODEL_BUILDERS, build_model, normalize_model_name
 
 
+def configure_runtime(mixed_precision: bool) -> None:
+    gpus = tf.config.list_physical_devices("GPU")
+    for gpu in gpus:
+        try:
+            tf.config.experimental.set_memory_growth(gpu, True)
+        except RuntimeError:
+            pass
+
+    if mixed_precision:
+        tf.keras.mixed_precision.set_global_policy("mixed_float16")
+
+    if gpus:
+        gpu_names = ", ".join(gpu.name for gpu in gpus)
+        print(f"GPUs visible to TensorFlow: {gpu_names}")
+    else:
+        print("GPUs visible to TensorFlow: none")
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Train image classifiers on DeepVariant TFRecord shards."
@@ -26,7 +44,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--model",
         default="all",
-        help="Model to train: all, inceptionv3, convnextv2_tiny, efficientnetv2_s, vit_tiny.",
+        help=(
+            "Model to train: all, inceptionv3, convnextv2_tiny, efficientnetv2_s, "
+            "vit_tiny. Multiple models can be comma-separated."
+        ),
     )
     parser.add_argument("--output-dir", default="runs", help="Folder for checkpoints and logs.")
     parser.add_argument("--run-name", default=None, help="Run folder name. Defaults to timestamp.")
@@ -55,6 +76,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--drop-remainder", action="store_true")
     parser.add_argument("--mixed-precision", action="store_true")
     parser.add_argument("--patience", type=int, default=0, help="EarlyStopping patience. 0 disables it.")
+    parser.add_argument("--verbose", type=int, default=2, choices=[0, 1, 2])
     return parser.parse_args()
 
 
@@ -113,6 +135,9 @@ def train_one_model(
         drop_remainder=args.drop_remainder,
         parallel_reads=args.parallel_reads,
     )
+    if args.steps_per_epoch is not None:
+        train_dataset = train_dataset.repeat()
+
     val_dataset = build_dataset(
         val_files,
         input_shape=input_shape,
@@ -128,6 +153,8 @@ def train_one_model(
         drop_remainder=False,
         parallel_reads=args.parallel_reads,
     )
+    if args.validation_steps is not None:
+        val_dataset = val_dataset.repeat()
 
     model = build_model(
         model_name,
@@ -181,16 +208,20 @@ def train_one_model(
         steps_per_epoch=args.steps_per_epoch,
         validation_steps=args.validation_steps,
         callbacks=callbacks,
+        verbose=args.verbose,
     )
     model.save(run_dir / "last.keras")
 
 
 def main() -> None:
     args = parse_args()
-    selected_model = normalize_model_name(args.model)
+    model_names = [normalize_model_name(name) for name in args.model.split(",") if name.strip()]
+    if not model_names:
+        raise ValueError("--model must not be empty")
+    if "all" in model_names and len(model_names) > 1:
+        raise ValueError("--model all cannot be combined with other model names")
 
-    if args.mixed_precision:
-        tf.keras.mixed_precision.set_global_policy("mixed_float16")
+    configure_runtime(args.mixed_precision)
 
     input_shape = (
         parse_input_shape(args.input_shape)
@@ -200,7 +231,7 @@ def main() -> None:
     train_files = list_tfrecords(args.data_dir, args.train_pattern)
     val_files = list_tfrecords(args.data_dir, args.val_pattern)
 
-    model_names = list(MODEL_BUILDERS) if selected_model == "all" else [selected_model]
+    model_names = list(MODEL_BUILDERS) if model_names == ["all"] else model_names
     run_name = args.run_name or datetime.now().strftime("%Y%m%d-%H%M%S")
     base_run_dir = Path(args.output_dir) / run_name
 

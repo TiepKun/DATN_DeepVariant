@@ -109,6 +109,32 @@ python -m deepvariant_train.train `
   --run-name smoke-train
 ```
 
+## Train GPU bang WSL2
+
+Neu TensorFlow tren Windows khong thay GPU, dung WSL2 Ubuntu. Script nay chay 4 model bang GPU, batch size mac dinh `8`, epochs mac dinh `20`, mixed precision bat san:
+
+```powershell
+wsl bash -lc "cd /mnt/d/DATN_DeepVariant && scripts/train_all_gpu_wsl.sh"
+```
+
+Theo doi log:
+
+```powershell
+wsl bash -lc "cd /mnt/d/DATN_DeepVariant && tail -f runs/<run-name>/train.log"
+```
+
+Kiem tra GPU:
+
+```powershell
+wsl nvidia-smi
+```
+
+Dung run nen:
+
+```powershell
+wsl bash -lc "cd /mnt/d/DATN_DeepVariant && kill $(cat runs/<run-name>/pid.txt)"
+```
+
 Tat shuffle train chi khi can debug:
 
 ```powershell

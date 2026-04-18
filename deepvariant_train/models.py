@@ -19,8 +19,10 @@ class StochasticDepth(tf.keras.layers.Layer):
             return inputs
 
         keep_prob = 1.0 - self.drop_rate
-        rank = tf.rank(inputs)
-        shape = tf.concat([[tf.shape(inputs)[0]], tf.ones([rank - 1], dtype=tf.int32)], axis=0)
+        input_rank = len(inputs.shape)
+        if input_rank is None:
+            raise ValueError("StochasticDepth requires a known input rank")
+        shape = (tf.shape(inputs)[0],) + (1,) * (input_rank - 1)
         random_tensor = keep_prob + tf.random.uniform(shape, dtype=inputs.dtype)
         binary_tensor = tf.floor(random_tensor)
         return tf.divide(inputs, keep_prob) * binary_tensor
@@ -53,10 +55,15 @@ class GlobalResponseNorm(tf.keras.layers.Layer):
         )
 
     def call(self, inputs: tf.Tensor) -> tf.Tensor:
-        spatial_norm = tf.norm(inputs, ord=2, axis=(1, 2), keepdims=True)
+        norm_inputs = tf.cast(inputs, tf.float32)
+        spatial_norm = tf.sqrt(
+            tf.reduce_sum(tf.square(norm_inputs), axis=[1, 2], keepdims=True)
+            + tf.cast(self.epsilon, tf.float32)
+        )
         response_norm = spatial_norm / (
             tf.reduce_mean(spatial_norm, axis=-1, keepdims=True) + self.epsilon
         )
+        response_norm = tf.cast(response_norm, inputs.dtype)
         return self.gamma * (inputs * response_norm) + self.beta + inputs
 
     def get_config(self) -> dict:
@@ -369,4 +376,3 @@ def build_model(
         drop_path_rate=drop_path_rate,
         patch_size=patch_size,
     )
-

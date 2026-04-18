@@ -1,4 +1,5 @@
 .venv/
+.venv-wsl/
 __pycache__/
 *.py[cod]
 *.egg-info/
@@ -10,4 +11,3 @@ logs/
 checkpoints/
 *.keras
 *.h5
-
