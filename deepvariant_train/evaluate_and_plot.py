@@ -50,6 +50,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--checkpoint", default="best", choices=["best", "last"])
     parser.add_argument("--models", default=",".join(DEFAULT_MODEL_ORDER))
     parser.add_argument("--batch-size", type=int, default=32)
+    parser.add_argument("--progress-interval", type=int, default=100)
     parser.add_argument("--input-shape", default=None)
     parser.add_argument("--num-classes", type=int, default=3)
     parser.add_argument("--class-names", default="0,1,2")
@@ -85,7 +86,18 @@ def read_history(path: Path) -> list[dict[str, float]]:
 
 def history_summary(model_name: str, rows: list[dict[str, float]]) -> dict[str, float | str | int]:
     if not rows:
-        return {"model": model_name}
+        return {
+            "model": model_name,
+            "epochs": 0,
+            "best_val_accuracy": math.nan,
+            "best_val_accuracy_epoch": 0,
+            "best_val_loss": math.nan,
+            "best_val_loss_epoch": 0,
+            "last_accuracy": math.nan,
+            "last_loss": math.nan,
+            "last_val_accuracy": math.nan,
+            "last_val_loss": math.nan,
+        }
     best_acc_row = max(rows, key=lambda row: row.get("val_accuracy", float("-inf")))
     best_loss_row = min(rows, key=lambda row: row.get("val_loss", float("inf")))
     last = rows[-1]
@@ -168,7 +180,9 @@ def evaluate_model(
     model_path: Path,
     dataset: tf.data.Dataset,
     *,
+    model_name: str,
     num_classes: int,
+    progress_interval: int,
 ) -> tuple[dict[int | str, np.ndarray], dict[str, float | int]]:
     load_start = time.perf_counter()
     model = tf.keras.models.load_model(model_path, compile=False)
@@ -177,7 +191,7 @@ def evaluate_model(
     predict_time_sec = 0.0
     total_samples = 0
 
-    for images, labels, variant_types in dataset:
+    for batch_index, (images, labels, variant_types) in enumerate(dataset, start=1):
         batch_size = int(images.shape[0]) if images.shape[0] is not None else int(tf.shape(images)[0])
         predict_start = time.perf_counter()
         logits = model(images, training=False)
@@ -196,6 +210,12 @@ def evaluate_model(
                     predictions[mask],
                     num_classes=num_classes,
                 )
+        if progress_interval > 0 and batch_index % progress_interval == 0:
+            print(
+                f"  {model_name}: batches={batch_index}, samples={total_samples}, "
+                f"speed={total_samples / predict_time_sec:.2f} samples/sec",
+                flush=True,
+            )
 
     samples_per_second = total_samples / predict_time_sec if predict_time_sec else math.nan
     ms_per_sample = predict_time_sec * 1000 / total_samples if total_samples else math.nan
@@ -279,9 +299,13 @@ def write_csv(path: Path, rows: list[dict[str, object]]) -> None:
     if not rows:
         return
     path.parent.mkdir(parents=True, exist_ok=True)
-    fieldnames = list(rows[0])
+    fieldnames: list[str] = []
+    for row in rows:
+        for key in row:
+            if key not in fieldnames:
+                fieldnames.append(key)
     with path.open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer = csv.DictWriter(handle, fieldnames=fieldnames, extrasaction="ignore")
         writer.writeheader()
         writer.writerows(rows)
 
@@ -376,9 +400,11 @@ def svg_grouped_bar_chart(
     plot_w = width - margin["left"] - margin["right"]
     plot_h = height - margin["top"] - margin["bottom"]
     values = [value for vals in series.values() for value in vals]
+    finite_values = [value for value in values if not math.isnan(value)]
     if y_max is None:
         _, y_max = normalize(values)
-        y_max = max(y_max, 1.0 if max(values or [0]) <= 1.0 else max(values or [0]))
+        max_value = max(finite_values) if finite_values else 0.0
+        y_max = max(y_max, 1.0 if max_value <= 1.0 else max_value)
     group_w = plot_w / max(1, len(categories))
     names = list(series)
     bar_gap = 4
@@ -404,6 +430,8 @@ def svg_grouped_bar_chart(
         parts.append(f'<text x="{label_x:.1f}" y="{height - 48}" text-anchor="middle" class="axis-label">{html.escape(category)}</text>')
         for series_index, name in enumerate(names):
             value = series[name][cat_index]
+            if math.isnan(value):
+                continue
             color = PALETTE[series_index % len(PALETTE)]
             x = group_x + 9 + series_index * (bar_w + bar_gap)
             y = sy(value)
@@ -730,7 +758,9 @@ def main() -> None:
         confusion_state, speed = evaluate_model(
             checkpoint_path,
             dataset,
+            model_name=model_name,
             num_classes=args.num_classes,
+            progress_interval=args.progress_interval,
         )
         speed_row = {"model": model_name, **speed}
         speed_rows.append(speed_row)
